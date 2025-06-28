@@ -4,7 +4,7 @@ Response variable:
 
 Column 9: "cps89" (1989 CPS direct poverty estimate for the 5–17 age group of each state)
 
-Three independent variables:
+Four independent variables:
 
 Column 10: "irspr89", 1989 pseudo-poverty rates tabulated from IRS tax data.
 
