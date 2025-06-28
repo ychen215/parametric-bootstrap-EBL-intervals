@@ -1,5 +1,7 @@
-Please replace the contents of this file with relevant instructions for your repository or remove this file entirely.
+This folder contains two R script files:
 
-This directory would generally contain source code files that contain the core code to implement the method and various utility/auxiliary functions.
+1. single_bootstrap_t.R
+This script implements the single parametric bootstrap method for generating empirical best linear prediction intervals, assuming the random effects follow a t-distribution.
 
-Scripts/code files that execute the overall workflow to carry out an analysis and generate results for the manuscript might be placed in the main directory.
+2. single_double_bootstrap_SE.R
+This script includes both the single and double parametric bootstrap methods for generating empirical best linear prediction intervals, assuming the random effects follow a shifted exponential distribution.
