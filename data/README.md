@@ -1,9 +1,12 @@
-Please replace the contents of this file with relevant instructions for your repository or remove this file entirely.
+"CPS89T.TXT" is the dataset we used for real data analysis, which is from the 1989 Small Area Income and Poverty Estimates (SAIPE) program.
 
-This directory would generally contain the real data files (or facsimile versions of them in place of confidential data) and simulated data files.
+Response variable:
+Column 9: "cps89" (1989 CPS direct poverty estimate for the 5–17 age group of each state)
 
-Cleaned data that are produced by processing raw input data might also be placed here.
+Three independent variables:
+Column 10: "irspr89", 1989 pseudo-poverty rates tabulated from IRS tax data.
+Column 11: "irsnf89", 1989 tax non-filer rates from IRS data.
+Column 12: "fs89", 1989 Food Stamp participation proportions.
+Column 13: "cpsse", previous census estimated poverty ratios.
 
-Code to generate the simulated data and (if relevant) and facsimile data provided in place of confidential real data might also be placed here. 
-
-Code for data cleaning could potentially also be placed here rather than in `code`.
+Known sampling variance: square of the Column 15, "fnlse".
