@@ -1,29 +1,5 @@
-#--------- Estimation of A ---------------
-
-#---------Prasad-Rao Method -----------
-PR_fun = function(x, y, d, m, p){
-  beta_ols = solve(t(x) %*% x) %*% t(x) %*% y
-  h = diag(x %*% solve(t(x) %*% x) %*% t(x))
-  A_pr = (t(y - x %*% beta_ols) %*% (y - x %*% beta_ols) - sum(d * (1 - h))) / (m - p)
-  return(A_pr)
-}
-
-#---------Fay-Herriot Method -----------
-F_fh = function(Ahat, y, d, x){
-  Vi = diag(1/(c(Ahat) + d))
-  yhat = x %*% solve(t(x) %*% Vi %*% x) %*% t(x) %*% Vi %*% y
-  f_fh = sum((y - yhat)^2 / (Ahat + d))
-  return(f_fh)
-}
-# Expectation of the first derivative of f
-G_fh = function(Ahat, d, x){
-  Vi = diag(1/(c(Ahat) + d))
-  P = Vi - Vi %*% x %*% solve(t(x) %*% Vi %*% x) %*% t(x) %*% Vi
-  return(-sum(diag(P)))
-}
-
-# library(flexsurv)
 library(mvtnorm)
+source("basic functions.R")
 #-----Generate Data Parameters
 m = 15  # number of small areas
 # m = 50
@@ -37,9 +13,6 @@ beta = 0
 A = 1.0
 Alpha = c(0.2, 0.1, 0.05)
 p = 1
-df = 9
-tol = 0.0001
-maxiter = 100
 
 ## number of negative estimates
 cc_fh = 0
@@ -68,16 +41,15 @@ system.time(
     Direct = y
     
     #------ theta_PR-----
-    A_PR = PR_fun(x, y, d, m, p)
-    if(A_PR < 0){
-      A_PR = 0.01
-      cc_pr = cc_pr + 1
-    }
+    est_A_PR = estimate_A(method = "PR", x, y, d, m, p) 
+    A_PR = est_A_PR$A 
+    cc_pr = cc_pr + est_A_PR$k0
     
-    Vi_PR = diag(1/(c(A_PR) + d))
-    beta_PR = solve(t(x) %*% Vi_PR %*% x) %*% t(x) %*% Vi_PR %*% y
-    B_PR = d / (d + c(A_PR))
-    eblup.PR = (1 - B_PR) * y + B_PR * (x %*% beta_PR)
+    all_PR = compute_eblup(A_PR, x, y, d)
+    Vi_PR = all_PR$Vi
+    beta_PR = all_PR$beta
+    B_PR = all_PR$B
+    eblup.PR = all_PR$eblup
     
     g1_PR = d * (1 - B_PR)
     g2_PR = B_PR^2 * diag(x %*% solve(t(x) %*% Vi_PR %*% x) %*% t(x))
@@ -86,30 +58,15 @@ system.time(
     mse_PR = g1_PR + g2_PR + 2*g3_PR
 
     #------ theta_FH-----
-    if((F_fh(0, y, d, x)-(m-p))<0){
-      A_FH = 0.01
-      cc_fh = cc_fh +1
-    }
-    else{
-      A_FH = 0
-      k=0
-      diff = 10
-      while((diff > tol)&(k < maxiter)) {
-        Anew_fh = A_FH + (m - p - F_fh(A_FH, y, d, x)) / G_fh(A_FH, d, x)
-        Anew_fh = ifelse(Anew_fh < 0, -Anew_fh/10, Anew_fh)
-        diff = abs(Anew_fh - A_FH)
-        A_FH = Anew_fh
-        k = k +1
-      }
-      if((A_FH < 0)|(k==maxiter)) {
-        A_FH = 0.01
-        cc_fh = cc_fh + 1
-      }
-    }
-    Vi_FH = diag(1/(c(A_FH) + d))
-    beta_FH = solve(t(x) %*% Vi_FH %*% x) %*% t(x) %*% Vi_FH %*% y
-    B_FH = d / (d + c(A_FH))
-    eblup.FH = (1 - B_FH) * y + B_FH * (x %*% beta_FH)
+    est_A_FH = estimate_A(method = "FH", x, y, d, m, p)
+    A_FH = est_A_FH$A
+    cc_fh = cc_fh + est_A_FH$k0
+    
+    all_FH = compute_eblup(A_FH, x, y, d)
+    Vi_FH = all_FH$Vi
+    beta_FH = all_FH$beta
+    B_FH = all_FH$B
+    eblup.FH = all_FH$eblup
     
     g1_FH = d * (1 - B_FH)
     g2_FH = B_FH^2 * diag(x %*% solve(t(x) %*% Vi_FH %*% x) %*% t(x))
@@ -140,46 +97,32 @@ system.time(
       by_PR = btheta_PR + matrix(be)
       
       #Single bootstrap for PR
-      A.star.PR = PR_fun(x, by_PR, d, m, p)
-      if(A.star.PR < 0){
-        A.star.PR = 0.01
-        s_pr = s_pr + 1
-      }
+      est.A.star.PR = estimate_A(method = "PR", x, by_PR, d, m, p) 
+      A.star.PR = est.A.star.PR$A
+      s_pr = s_pr + est.A.star.PR$k0
       
-      Vi.star.PR = diag(1/(c(A.star.PR) + d))
-      beta.s.PR = solve(t(x) %*% Vi.star.PR %*% x) %*% t(x) %*% Vi.star.PR %*% by_PR
-      B.star.PR = d / (d + c(A.star.PR))
-      eblup.s.PR = (1 - B.star.PR) * by_PR + B.star.PR * (x %*% beta.s.PR)
+      all_PR.star = compute_eblup(A.star.PR, x, by_PR, d)
+      Vi.star.PR = all_PR.star$Vi
+      beta.s.PR = all_PR.star$beta
+      B.star.PR = all_PR.star$B
+      eblup.s.PR = all_PR.star$eblup
+      
       g1.s.PR = d * (1 - B.star.PR)
       
       pivot_PR[bb, ] = t((btheta_PR - eblup.s.PR) / sqrt(g1.s.PR))
       HM_PR[bb, ] = t((btheta_PR - x %*% beta.s.PR) / c(sqrt(A.star.PR)))
       
       #Single bootstrap for FH
-      if((F_fh(0, by_FH, d, x)-(m-p))<0){
-        A.star.FH = 0.01
-        s_fh = s_fh +1
-      }
-      else{
-        A.star.FH = 0
-        diff = 10
-        k = 0
-        while((diff > tol) & (k < maxiter)) {
-          Anew_fh = A.star.FH + (m - p - F_fh(A.star.FH, by_FH, d, x)) / G_fh(A.star.FH, d, x)
-          Anew_fh = ifelse(Anew_fh < 0, -Anew_fh/10, Anew_fh)
-          diff = abs(Anew_fh - A.star.FH)
-          A.star.FH = Anew_fh
-          k = k + 1
-        }
-        if((A.star.FH < 0)|(k==maxiter)) {
-          A.star.FH = 0.01
-          s_fh = s_fh +1
-        }
-      }
-      Vi.star.FH = diag(1/(c(A.star.FH) + d))
-      beta.s.FH = solve(t(x) %*% Vi.star.FH %*% x) %*% t(x) %*% Vi.star.FH %*% by_FH
-      B.star.FH = d / (d + c(A.star.FH))
-      eblup.s.FH = (1 - B.star.FH) * by_FH + B.star.FH * (x %*% beta.s.FH)
+      est.A.star.FH = estimate_A(method = "FH", x, by_FH, d, m, p) 
+      A.star.FH = est.A.star.FH$A
+      s_fh = s_fh + est.A.star.FH$k0
+      
+      all_FH.star = compute_eblup(A.star.FH, x, by_FH, d)
+      Vi.star.FH = all_FH.star$Vi
+      beta.s.FH = all_FH.star$beta
+      B.star.FH = all_FH.star$B
+      eblup.s.FH = all_FH.star$eblup
+      
       g1.s.FH = d * (1 - B.star.FH)
       
       pivot_FH[bb, ] = t((btheta_FH - eblup.s.FH) / sqrt(g1.s.FH))
@@ -204,47 +147,32 @@ system.time(
         dy_PR = dtheta_PR + matrix(de)
         
         # Double bootstrap for PR
-        A.ss.PR = PR_fun(x, dy_PR, d, m, p)
-        if(A.ss.PR < 0){
-          A.ss.PR = 0.01
-          ss_pr = ss_pr + 1
-        }
+        est.A.ss.PR = estimate_A(method = "PR", x, dy_PR, d, m, p) 
+        A.ss.PR = est.A.ss.PR$A
+        ss_pr = ss_pr + est.A.ss.PR$k0
         
-        Vi.ss.PR = diag(1/(c(A.ss.PR) + d))
-        beta.ss.PR = solve(t(x) %*% Vi.ss.PR %*% x) %*% t(x) %*% Vi.ss.PR %*% dy_PR
-        B.ss.PR = d / (d + c(A.ss.PR))
-        eblup.ss.PR = (1 - B.ss.PR) * dy_PR + B.ss.PR * (x %*% beta.ss.PR)
+        all_PR.ss = compute_eblup(A.ss.PR, x, dy_PR, d)
+        Vi.ss.PR = all_PR.ss$Vi
+        beta.ss.PR = all_PR.ss$beta
+        B.ss.PR = all_PR.ss$B
+        eblup.ss.PR = all_PR.ss$eblup
+        
         g1.ss.PR = d * (1 - B.ss.PR)
         
         d_pivot_PR[dd, ] = t((dtheta_PR - eblup.ss.PR) / sqrt(g1.ss.PR))
         d_HM_PR[dd, ] = t((dtheta_PR - x %*% beta.ss.PR) / c(sqrt(A.ss.PR)))
         
         # Double bootstrap for FH
-        if((F_fh(0, dy_FH, d, x)-(m-p))<0){
-          A.ss.FH = 0.01
-          ss_fh = ss_fh +1
-        }
-        else{
-          A.ss.FH = 0
-          diff = 10
-          k = 0
-          while((diff > tol) & (k < maxiter)) {
-            Anew_fh = A.ss.FH + (m - p - F_fh(A.ss.FH, dy_FH, d, x)) / G_fh(A.ss.FH, d, x)
-            Anew_fh = ifelse(Anew_fh < 0, -Anew_fh/10, Anew_fh)
-            diff = abs(Anew_fh - A.ss.FH)
-            A.ss.FH = Anew_fh
-            k = k+1
-          }
-          if((A.ss.FH < 0)|(k==maxiter)) {
-            A.ss.FH = 0.01
-            ss_fh = ss_fh +1
-          }
-        }
+        est.A.ss.FH = estimate_A(method = "FH", x, dy_FH, d, m, p) 
+        A.ss.FH = est.A.ss.FH$A
+        ss_fh = ss_fh + est.A.ss.FH$k0
+
+        all_FH.ss = compute_eblup(A.ss.FH, x, dy_FH, d)
+        Vi.ss.FH = all_FH.ss$Vi
+        beta.ss.FH = all_FH.ss$beta
+        B.ss.FH = all_FH.ss$B
+        eblup.ss.FH = all_FH.ss$eblup
         
-        Vi.ss.FH = diag(1/(c(A.ss.FH) + d))
-        beta.ss.FH = solve(t(x) %*% Vi.ss.FH %*% x) %*% t(x) %*% Vi.ss.FH %*% dy_FH
-        B.ss.FH = d / (d + c(A.ss.FH))
-        eblup.ss.FH = (1 - B.ss.FH) * dy_FH + B.ss.FH * (x %*% beta.ss.FH)
         g1.ss.FH = d * (1 - B.ss.FH)
         
         d_pivot_FH[dd, ] = t((dtheta_FH - eblup.ss.FH) / sqrt(g1.ss.FH))
@@ -291,31 +219,31 @@ system.time(
                         quantile(pivot_PR[, i], prob=1-Alpha[3]/2), quantile(HM_PR[, i], prob=1-Alpha[3]/2))
     }
     ###---Double bootstrap -------
-    #####----CLL-----
-    au.CLL.FH1 = apply(Z.j.FH, 2, quantile, prob=1-Alpha[1]/2)
-    al.CLL.FH1 = apply(Z.j.FH, 2, quantile, prob=Alpha[1]/2)
-    au.CLL.PR1 = apply(Z.j.PR, 2, quantile, prob=1-Alpha[1]/2)
-    al.CLL.PR1 = apply(Z.j.PR, 2, quantile, prob=Alpha[1]/2)
+    #####----SB-----
+    au.SB.FH1 = apply(Z.j.FH, 2, quantile, prob=1-Alpha[1]/2)
+    al.SB.FH1 = apply(Z.j.FH, 2, quantile, prob=Alpha[1]/2)
+    au.SB.PR1 = apply(Z.j.PR, 2, quantile, prob=1-Alpha[1]/2)
+    al.SB.PR1 = apply(Z.j.PR, 2, quantile, prob=Alpha[1]/2)
     
-    au.CLL.FH2 = apply(Z.j.FH, 2, quantile, prob=1-Alpha[2]/2)
-    al.CLL.FH2 = apply(Z.j.FH, 2, quantile, prob=Alpha[2]/2)
-    au.CLL.PR2 = apply(Z.j.PR, 2, quantile, prob=1-Alpha[2]/2)
-    al.CLL.PR2 = apply(Z.j.PR, 2, quantile, prob=Alpha[2]/2)
+    au.SB.FH2 = apply(Z.j.FH, 2, quantile, prob=1-Alpha[2]/2)
+    al.SB.FH2 = apply(Z.j.FH, 2, quantile, prob=Alpha[2]/2)
+    au.SB.PR2 = apply(Z.j.PR, 2, quantile, prob=1-Alpha[2]/2)
+    al.SB.PR2 = apply(Z.j.PR, 2, quantile, prob=Alpha[2]/2)
     
-    au.CLL.FH3 = apply(Z.j.FH, 2, quantile, prob=1-Alpha[3]/2)
-    al.CLL.FH3 = apply(Z.j.FH, 2, quantile, prob=Alpha[3]/2)
-    au.CLL.PR3 = apply(Z.j.PR, 2, quantile, prob=1-Alpha[3]/2)
-    al.CLL.PR3 = apply(Z.j.PR, 2, quantile, prob=Alpha[3]/2)
+    au.SB.FH3 = apply(Z.j.FH, 2, quantile, prob=1-Alpha[3]/2)
+    al.SB.FH3 = apply(Z.j.FH, 2, quantile, prob=Alpha[3]/2)
+    au.SB.PR3 = apply(Z.j.PR, 2, quantile, prob=1-Alpha[3]/2)
+    al.SB.PR3 = apply(Z.j.PR, 2, quantile, prob=Alpha[3]/2)
     
     for(i in 1:m){
-      q.d.lower1[i,]<-c(quantile(pivot_FH[, i], prob=al.CLL.FH1[i]), quantile(pivot_PR[, i], prob=al.CLL.PR1[i]))
-      q.d.upper1[i,]<-c(quantile(pivot_FH[, i], prob=au.CLL.FH1[i]), quantile(pivot_PR[, i], prob=au.CLL.PR1[i]))
+      q.d.lower1[i,]<-c(quantile(pivot_FH[, i], prob=al.SB.FH1[i]), quantile(pivot_PR[, i], prob=al.SB.PR1[i]))
+      q.d.upper1[i,]<-c(quantile(pivot_FH[, i], prob=au.SB.FH1[i]), quantile(pivot_PR[, i], prob=au.SB.PR1[i]))
       
-      q.d.lower2[i,]<-c(quantile(pivot_FH[, i], prob=al.CLL.FH2[i]), quantile(pivot_PR[, i], prob=al.CLL.PR2[i]))
-      q.d.upper2[i,]<-c(quantile(pivot_FH[, i], prob=au.CLL.FH2[i]), quantile(pivot_PR[, i], prob=au.CLL.PR2[i]))
+      q.d.lower2[i,]<-c(quantile(pivot_FH[, i], prob=al.SB.FH2[i]), quantile(pivot_PR[, i], prob=al.SB.PR2[i]))
+      q.d.upper2[i,]<-c(quantile(pivot_FH[, i], prob=au.SB.FH2[i]), quantile(pivot_PR[, i], prob=au.SB.PR2[i]))
       
-      q.d.lower3[i,]<-c(quantile(pivot_FH[, i], prob=al.CLL.FH3[i]), quantile(pivot_PR[, i], prob=al.CLL.PR3[i]))
-      q.d.upper3[i,]<-c(quantile(pivot_FH[, i], prob=au.CLL.FH3[i]), quantile(pivot_PR[, i], prob=au.CLL.PR3[i]))
+      q.d.lower3[i,]<-c(quantile(pivot_FH[, i], prob=al.SB.FH3[i]), quantile(pivot_PR[, i], prob=al.SB.PR3[i]))
+      q.d.upper3[i,]<-c(quantile(pivot_FH[, i], prob=au.SB.FH3[i]), quantile(pivot_PR[, i], prob=au.SB.PR3[i]))
     }
     
     qdif1[, 1] <- qdif1[, 1] + (q.s.upper1[, 1] - q.s.lower1[, 1]) * sqrt(g1_FH)
@@ -359,9 +287,9 @@ system.time(
     qdif3[, 8] <- qdif3[, 8] + 2 * qnorm(1-Alpha[3]/2) * sqrt(mse_PR)
     qdif3[, 9] <- qdif3[, 9] + 2 * qnorm(1-Alpha[3]/2) * sqrt(d)
     
-    cov.CLL.FH1 <- ((theta <= (eblup.FH + q.s.upper1[,1] * sqrt(g1_FH))) & (theta >= (eblup.FH + q.s.lower1[,1] * sqrt(g1_FH))))
+    cov.SB.FH1 <- ((theta <= (eblup.FH + q.s.upper1[,1] * sqrt(g1_FH))) & (theta >= (eblup.FH + q.s.lower1[,1] * sqrt(g1_FH))))
     cov.HM.FH1 <- ((theta <= (c(beta_FH) + q.s.upper1[,2] * sqrt(A_FH))) & (theta >= (c(beta_FH) + q.s.lower1[,2] * sqrt(A_FH))))
-    cov.CLL.PR1 <- ((theta <= (eblup.PR + q.s.upper1[,3] * sqrt(g1_PR))) & (theta >= (eblup.PR + q.s.lower1[,3] * sqrt(g1_PR))))
+    cov.SB.PR1 <- ((theta <= (eblup.PR + q.s.upper1[,3] * sqrt(g1_PR))) & (theta >= (eblup.PR + q.s.lower1[,3] * sqrt(g1_PR))))
     cov.HM.PR1 <- ((theta <= (c(beta_PR) + q.s.upper1[,4] * sqrt(A_PR))) & (theta >= (c(beta_PR) + q.s.lower1[,4] * sqrt(A_PR))))
     cov.FH1 <- ((theta <= (c(eblup.FH) + qnorm(1-Alpha[1]/2) * sqrt(mse_FH))) & (theta >= (c(eblup.FH) + qnorm(Alpha[1]/2) * sqrt(mse_FH))))
     cov.PR1 <- ((theta <= (c(eblup.PR) + qnorm(1-Alpha[1]/2) * sqrt(mse_PR))) & (theta >= (c(eblup.PR) + qnorm(Alpha[1]/2) * sqrt(mse_PR))))
@@ -371,11 +299,11 @@ system.time(
     
     coverge1 <- matrix(0, m, 9)
     
-    coverge1[, 1] <- ifelse(cov.CLL.FH1, 1, 0)
+    coverge1[, 1] <- ifelse(cov.SB.FH1, 1, 0)
     coverge1[, 2] <- ifelse(cov.HM.FH1, 1, 0)
     coverge1[, 3] <- ifelse(cov.DB.FH1, 1, 0)
     
-    coverge1[, 4] <- ifelse(cov.CLL.PR1, 1, 0)
+    coverge1[, 4] <- ifelse(cov.SB.PR1, 1, 0)
     coverge1[, 5] <- ifelse(cov.HM.PR1, 1, 0)
     coverge1[, 6] <- ifelse(cov.DB.PR1, 1, 0)
     
@@ -387,9 +315,9 @@ system.time(
     
     
     
-    cov.CLL.FH2 <- ((theta <= (eblup.FH + q.s.upper2[,1] * sqrt(g1_FH))) & (theta >= (eblup.FH + q.s.lower2[,1] * sqrt(g1_FH))))
+    cov.SB.FH2 <- ((theta <= (eblup.FH + q.s.upper2[,1] * sqrt(g1_FH))) & (theta >= (eblup.FH + q.s.lower2[,1] * sqrt(g1_FH))))
     cov.HM.FH2 <- ((theta <= (c(beta_FH) + q.s.upper2[,2] * sqrt(A_FH))) & (theta >= (c(beta_FH) + q.s.lower2[,2] * sqrt(A_FH))))
-    cov.CLL.PR2 <- ((theta <= (eblup.PR + q.s.upper2[,3] * sqrt(g1_PR))) & (theta >= (eblup.PR + q.s.lower2[,3] * sqrt(g1_PR))))
+    cov.SB.PR2 <- ((theta <= (eblup.PR + q.s.upper2[,3] * sqrt(g1_PR))) & (theta >= (eblup.PR + q.s.lower2[,3] * sqrt(g1_PR))))
     cov.HM.PR2 <- ((theta <= (c(beta_PR) + q.s.upper2[,4] * sqrt(A_PR))) & (theta >= (c(beta_PR) + q.s.lower2[,4] * sqrt(A_PR))))
     cov.FH2 <- ((theta <= (c(eblup.FH) + qnorm(1-Alpha[2]/2) * sqrt(mse_FH))) & (theta >= (c(eblup.FH) + qnorm(Alpha[2]/2) * sqrt(mse_FH))))
     cov.PR2 <- ((theta <= (c(eblup.PR) + qnorm(1-Alpha[2]/2) * sqrt(mse_PR))) & (theta >= (c(eblup.PR) + qnorm(Alpha[2]/2) * sqrt(mse_PR))))
@@ -400,11 +328,11 @@ system.time(
     
     coverge2 <- matrix(0, m, 9)
     
-    coverge2[, 1] <- ifelse(cov.CLL.FH2, 1, 0)
+    coverge2[, 1] <- ifelse(cov.SB.FH2, 1, 0)
     coverge2[, 2] <- ifelse(cov.HM.FH2, 1, 0)
     coverge2[, 3] <- ifelse(cov.DB.FH2, 1, 0)
     
-    coverge2[, 4] <- ifelse(cov.CLL.PR2, 1, 0)
+    coverge2[, 4] <- ifelse(cov.SB.PR2, 1, 0)
     coverge2[, 5] <- ifelse(cov.HM.PR2, 1, 0)
     coverge2[, 6] <- ifelse(cov.DB.PR2, 1, 0)
     
@@ -415,9 +343,9 @@ system.time(
     Int2 <- coverge2 + Int2
   
     
-    cov.CLL.FH3 <- ((theta <= (eblup.FH + q.s.upper3[,1] * sqrt(g1_FH))) & (theta >= (eblup.FH + q.s.lower3[,1] * sqrt(g1_FH))))
+    cov.SB.FH3 <- ((theta <= (eblup.FH + q.s.upper3[,1] * sqrt(g1_FH))) & (theta >= (eblup.FH + q.s.lower3[,1] * sqrt(g1_FH))))
     cov.HM.FH3 <- ((theta <= (c(beta_FH) + q.s.upper3[,2] * sqrt(A_FH))) & (theta >= (c(beta_FH) + q.s.lower3[,2] * sqrt(A_FH))))
-    cov.CLL.PR3 <- ((theta <= (eblup.PR + q.s.upper3[,3] * sqrt(g1_PR))) & (theta >= (eblup.PR + q.s.lower3[,3] * sqrt(g1_PR))))
+    cov.SB.PR3 <- ((theta <= (eblup.PR + q.s.upper3[,3] * sqrt(g1_PR))) & (theta >= (eblup.PR + q.s.lower3[,3] * sqrt(g1_PR))))
     cov.HM.PR3 <- ((theta <= (c(beta_PR) + q.s.upper3[,4] * sqrt(A_PR))) & (theta >= (c(beta_PR) + q.s.lower3[,4] * sqrt(A_PR))))
     cov.FH3 <- ((theta <= (c(eblup.FH) + qnorm(1-Alpha[3]/2) * sqrt(mse_FH))) & (theta >= (c(eblup.FH) + qnorm(Alpha[3]/2) * sqrt(mse_FH))))
     cov.PR3 <- ((theta <= (c(eblup.PR) + qnorm(1-Alpha[3]/2) * sqrt(mse_PR))) & (theta >= (c(eblup.PR) + qnorm(Alpha[3]/2) * sqrt(mse_PR))))
@@ -428,11 +356,11 @@ system.time(
     
     coverge3 <- matrix(0, m, 9) 
     
-    coverge3[, 1] <- ifelse(cov.CLL.FH3, 1, 0)
+    coverge3[, 1] <- ifelse(cov.SB.FH3, 1, 0)
     coverge3[, 2] <- ifelse(cov.HM.FH3, 1, 0)
     coverge3[, 3] <- ifelse(cov.DB.FH3, 1, 0)
     
-    coverge3[, 4] <- ifelse(cov.CLL.PR3, 1, 0)
+    coverge3[, 4] <- ifelse(cov.SB.PR3, 1, 0)
     coverge3[, 5] <- ifelse(cov.HM.PR3, 1, 0)
     coverge3[, 6] <- ifelse(cov.DB.PR3, 1, 0)
     
@@ -456,7 +384,7 @@ G5 <- colMeans(Int1[13:15,])
 rbind(G1, G2, G3, G4, G5)
 
 a1 = rbind(rbind(G1, G2, G3, G4, G5))/Nosim*100
-colnames(a1) = c("CLL.FH","HM.FH","DB.FH","CLL.PR","HM.PR", "DB.PR", "FH","PR","DIRECT")
+colnames(a1) = c("SB.FH","HM.FH","DB.FH","SB.PR","HM.PR", "DB.PR", "FH","PR","DIRECT")
 
 G1 <- colMeans(qdif1[1:3,])
 G2 <- colMeans(qdif1[4:6,])
@@ -466,7 +394,7 @@ G5 <- colMeans(qdif1[13:15,])
 rbind(G1, G2, G3, G4, G5)
 
 b1 = rbind(rbind(G1, G2, G3, G4, G5))/Nosim
-colnames(b1) = c("CLL.FH","HM.FH","DB.FH","CLL.PR","HM.PR", "DB.PR", "FH","PR","DIRECT")
+colnames(b1) = c("SB.FH","HM.FH","DB.FH","SB.PR","HM.PR", "DB.PR", "FH","PR","DIRECT")
 
 G1 <- colMeans(Int2[1:3,])
 G2 <- colMeans(Int2[4:6,])
@@ -476,7 +404,7 @@ G5 <- colMeans(Int2[13:15,])
 rbind(G1, G2, G3, G4, G5)
 
 a2 = rbind(rbind(G1, G2, G3, G4, G5))/Nosim*100
-colnames(a2) = c("CLL.FH","HM.FH","DB.FH","CLL.PR","HM.PR", "DB.PR", "FH","PR","DIRECT")
+colnames(a2) = c("SB.FH","HM.FH","DB.FH","SB.PR","HM.PR", "DB.PR", "FH","PR","DIRECT")
 
 G1 <- colMeans(qdif2[1:3,])
 G2 <- colMeans(qdif2[4:6,])
@@ -486,7 +414,7 @@ G5 <- colMeans(qdif2[13:15,])
 rbind(G1, G2, G3, G4, G5)
 
 b2 = rbind(rbind(G1, G2, G3, G4, G5))/Nosim
-colnames(b2) = c("CLL.FH","HM.FH","DB.FH","CLL.PR","HM.PR", "DB.PR", "FH","PR","DIRECT")
+colnames(b2) = c("SB.FH","HM.FH","DB.FH","SB.PR","HM.PR", "DB.PR", "FH","PR","DIRECT")
 
 G1 <- colMeans(Int3[1:3,])
 G2 <- colMeans(Int3[4:6,])
@@ -496,7 +424,7 @@ G5 <- colMeans(Int3[13:15,])
 rbind(G1, G2, G3, G4, G5)
 
 a3 = rbind(rbind(G1, G2, G3, G4, G5))/Nosim*100
-colnames(a3) = c("CLL.FH","HM.FH","DB.FH","CLL.PR","HM.PR", "DB.PR", "FH","PR","DIRECT")
+colnames(a3) = c("SB.FH","HM.FH","DB.FH","SB.PR","HM.PR", "DB.PR", "FH","PR","DIRECT")
 
 G1 <- colMeans(qdif3[1:3,])
 G2 <- colMeans(qdif3[4:6,])
@@ -506,7 +434,7 @@ G5 <- colMeans(qdif3[13:15,])
 rbind(G1, G2, G3, G4, G5)
 
 b3 = rbind(rbind(G1, G2, G3, G4, G5))/Nosim
-colnames(b3) = c("CLL.FH","HM.FH","DB.FH","CLL.PR","HM.PR", "DB.PR", "FH","PR","DIRECT")
+colnames(b3) = c("SB.FH","HM.FH","DB.FH","SB.PR","HM.PR", "DB.PR", "FH","PR","DIRECT")
 
 tab2 = rbind(cbind(a1, b1),cbind(a2, b2),cbind(a3, b3))
 xtable::xtable(tab2)
