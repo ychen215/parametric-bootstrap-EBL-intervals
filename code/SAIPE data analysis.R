@@ -2,6 +2,7 @@ saipet = read.table("CPS89T.TXT", header = T)
 data5_17 = saipet[, c(1, 9:15, 30)]
 library(mvtnorm)
 library(ggplot2)
+source("basic functions.R")
 B =  400
 DB = 100
 ## number of negative estimates in single bootstrap
@@ -16,48 +17,17 @@ d = (data5_17$fnlse.1)^2
 m = nrow(data5_17)
 Alpha = 0.1
 df = 3
-tol = 0.0001
-maxiter = 100
 x = as.matrix(data5_17[, 3:6])
 p = dim(x)[2]
 
 #---------Fay-Herriot Method -----------
-F_fh = function(Ahat, y, d, x){
-  Vi = diag(1/(c(Ahat) + d))
-  yhat = x %*% solve(t(x) %*% Vi %*% x) %*% t(x) %*% Vi %*% y
-  f_fh = sum((y - yhat)^2 / (Ahat + d))
-  return(f_fh)
-}
-# Expectation of the first derivative of f
-G_fh = function(Ahat, d, x){
-  Vi = diag(1/(c(Ahat) + d))
-  P = Vi - Vi %*% x %*% solve(t(x) %*% Vi %*% x) %*% t(x) %*% Vi
-  return(-sum(diag(P)))
-}
-#------ theta_FH-----
-if((F_fh(0, y, d, x)-(m-p))<0){
-  A_FH = 2/(m-3)#0.01
-  cc_fh = cc_fh +1
-}else{
-  A_FH = 0
-  k=0
-  diff = 10
-  while((diff > tol)&(k < maxiter)) {
-    Anew_fh = A_FH + (m - p - F_fh(A_FH, y, d, x)) / G_fh(A_FH, d, x)
-    Anew_fh = ifelse(Anew_fh < 0, -Anew_fh/10, Anew_fh)
-    diff = abs(Anew_fh - A_FH)
-    A_FH = Anew_fh
-    k = k +1
-  }
-  if((A_FH < 0)|(k==maxiter)) {
-    A_FH = 2/(m-3)#0.01
-    cc_fh = cc_fh + 1
-  }
-}
-Vi_FH = diag(1/(c(A_FH) + d))
-beta_FH = solve(t(x) %*% Vi_FH %*% x) %*% t(x) %*% Vi_FH %*% y
-B_FH = d / (d + c(A_FH))
-eblup.FH = (1 - B_FH) * y + B_FH * (x %*% beta_FH)
+est_A = estimate_A(method = "FH", x, y, d, m, p)
+A_FH = est_A$A
+all_FH = compute_eblup(A_FH, x, y, d)
+Vi_FH = all_FH$Vi
+beta_FH = all_FH$beta
+B_FH = all_FH$B
+eblup.FH = all_FH$eblup
 g1_FH = d * (1 - B_FH)
 
 Z.j.FH = matrix(0, B, m)
@@ -72,29 +42,16 @@ for (bb in 1:B){
   by_FH = btheta_FH + matrix(be)
   
   #Single bootstrap for FH
-  if((F_fh(0, by_FH, d, x)-(m-p))<0){
-    A.star.FH = 2/(m-3)#0.01
-    s_fh = s_fh +1
-  }else{
-    A.star.FH = 0
-    diff = 10
-    k = 0
-    while((diff > tol) & (k < maxiter)) {
-      Anew_fh = A.star.FH + (m - p - F_fh(A.star.FH, by_FH, d, x)) / G_fh(A.star.FH, d, x)
-      Anew_fh = ifelse(Anew_fh < 0, -Anew_fh/10, Anew_fh)
-      diff = abs(Anew_fh - A.star.FH)
-      A.star.FH = Anew_fh
-      k = k + 1
-    }
-    if((A.star.FH < 0)|(k==maxiter)) {
-      A.star.FH = 2/(m-3)#0.01
-      s_fh = s_fh +1
-    }
-  }
-  Vi.star.FH = diag(1/(c(A.star.FH) + d))
-  beta.s.FH = solve(t(x) %*% Vi.star.FH %*% x) %*% t(x) %*% Vi.star.FH %*% by_FH
-  B.star.FH = d / (d + c(A.star.FH))
-  eblup.s.FH = (1 - B.star.FH) * by_FH + B.star.FH * (x %*% beta.s.FH)
+  est_A_star = estimate_A(method = "FH", x, by_FH, d, m, p)
+  A.star.FH = est_A_star$A
+  s_fh = s_fh + est_A_star$k0
+  
+  all_FH_star = compute_eblup(A.star.FH, x, by_FH, d)
+  
+  Vi.star.FH = all_FH_star$Vi
+  beta.s.FH = all_FH_star$beta
+  B.star.FH = all_FH_star$B
+  eblup.s.FH = all_FH_star$eblup
   g1.s.FH = d * (1 - B.star.FH)
   
   pivot_FH[bb, ] = t((btheta_FH - eblup.s.FH) / sqrt(g1.s.FH))
@@ -109,31 +66,15 @@ for (bb in 1:B){
     dy_FH = dtheta_FH + matrix(de)
     
     # Double bootstrap for FH
-    if((F_fh(0, dy_FH, d, x)-(m-p))<0){
-      A.ss.FH = 2/(m-3)#0.01
-      ss_fh = ss_fh +1
-    }
-    else{
-      A.ss.FH = 0
-      diff = 10
-      k = 0
-      while((diff > tol) & (k < maxiter)) {
-        Anew_fh = A.ss.FH + (m - p - F_fh(A.ss.FH, dy_FH, d, x)) / G_fh(A.ss.FH, d, x)
-        Anew_fh = ifelse(Anew_fh < 0, -Anew_fh/10, Anew_fh)
-        diff = abs(Anew_fh - A.ss.FH)
-        A.ss.FH = Anew_fh
-        k = k+1
-      }
-      if((A.ss.FH < 0)|(k==maxiter)) {
-        A.ss.FH = 2/(m-3)#0.01
-        ss_fh = ss_fh +1
-      }
-    }
+    est_A_ss = estimate_A(method = "FH", x, dy_FH, d, m, p)
+    A.ss.FH = est_A_ss$A
+    ss_fh = ss_fh + est_A_ss$k0
     
-    Vi.ss.FH = diag(1/(c(A.ss.FH) + d))
-    beta.ss.FH = solve(t(x) %*% Vi.ss.FH %*% x) %*% t(x) %*% Vi.ss.FH %*% dy_FH
-    B.ss.FH = d / (d + c(A.ss.FH))
-    eblup.ss.FH = (1 - B.ss.FH) * dy_FH + B.ss.FH * (x %*% beta.ss.FH)
+    all_FH_ss = compute_eblup(A.ss.FH, x, dy_FH, d)
+    Vi.ss.FH = all_FH_ss$Vi
+    beta.ss.FH = all_FH_ss$beta
+    B.ss.FH = all_FH_ss$B
+    eblup.ss.FH = all_FH_ss$eblup
     g1.ss.FH = d * (1 - B.ss.FH)
     
     d_pivot_FH[dd, ] = t((dtheta_FH - eblup.ss.FH) / sqrt(g1.ss.FH))
@@ -147,15 +88,15 @@ for (bb in 1:B){
 q.s.lower1 = as.numeric(sapply(as.data.frame(pivot_FH), quantile, prob=Alpha/2))
 q.s.upper1 = as.numeric(sapply(as.data.frame(pivot_FH), quantile, prob=(1-Alpha/2)))
 
-au.CLL.FH1 = apply(Z.j.FH, 2, quantile, prob=1-Alpha/2)
-al.CLL.FH1 = apply(Z.j.FH, 2, quantile, prob=Alpha/2)
+au.SB.FH1 = apply(Z.j.FH, 2, quantile, prob=1-Alpha/2)
+al.SB.FH1 = apply(Z.j.FH, 2, quantile, prob=Alpha/2)
 q.d.upper1 <- matrix(0, m, 1)
 q.d.lower1 <- matrix(0, m, 1)
 for(i in 1:m){
-  q.d.lower1[i,]<-c(quantile(pivot_FH[, i], prob=al.CLL.FH1[i]))
-  q.d.upper1[i,]<-c(quantile(pivot_FH[, i], prob=au.CLL.FH1[i]))
+  q.d.lower1[i,]<-c(quantile(pivot_FH[, i], prob=al.SB.FH1[i]))
+  q.d.upper1[i,]<-c(quantile(pivot_FH[, i], prob=au.SB.FH1[i]))
 }
-cll.fh1 = cbind(eblup.FH + q.s.lower1 * sqrt(g1_FH), eblup.FH + q.s.upper1 * sqrt(g1_FH))
+SB.fh1 = cbind(eblup.FH + q.s.lower1 * sqrt(g1_FH), eblup.FH + q.s.upper1 * sqrt(g1_FH))
 DB.FH1 = cbind(eblup.FH + q.d.lower1 * sqrt(g1_FH), eblup.FH + q.d.upper1 * sqrt(g1_FH))
 
 intervals_t3 = data.frame(state = data5_17$fips,
@@ -193,76 +134,20 @@ for (bb in 1:B){
   
   by_FH = btheta_FH + matrix(be)
   
-  #Single bootstrap for FH
-  if((F_fh(0, by_FH, d, x)-(m-p))<0){
-    A.star.FH = 2/(m-3)#0.01
-    s_fh = s_fh +1
-  }else{
-    A.star.FH = 0
-    diff = 10
-    k = 0
-    while((diff > tol) & (k < maxiter)) {
-      Anew_fh = A.star.FH + (m - p - F_fh(A.star.FH, by_FH, d, x)) / G_fh(A.star.FH, d, x)
-      Anew_fh = ifelse(Anew_fh < 0, -Anew_fh/10, Anew_fh)
-      diff = abs(Anew_fh - A.star.FH)
-      A.star.FH = Anew_fh
-      k = k + 1
-    }
-    if((A.star.FH < 0)|(k==maxiter)) {
-      A.star.FH = 2/(m-3)#0.01
-      s_fh = s_fh +1
-    }
-  }
-  Vi.star.FH = diag(1/(c(A.star.FH) + d))
-  beta.s.FH = solve(t(x) %*% Vi.star.FH %*% x) %*% t(x) %*% Vi.star.FH %*% by_FH
-  B.star.FH = d / (d + c(A.star.FH))
-  eblup.s.FH = (1 - B.star.FH) * by_FH + B.star.FH * (x %*% beta.s.FH)
+  #Single bootstrap with FH estimate
+  est_A_star = estimate_A(method = "FH", x, by_FH, d, m, p)
+  A.star.FH = est_A_star$A
+  s_fh = s_fh + est_A_star$k0
+  
+  all_FH_star = compute_eblup(A.star.FH, x, by_FH, d)
+  
+  Vi.star.FH = all_FH_star$Vi
+  beta.s.FH = all_FH_star$beta
+  B.star.FH =all_FH_star$B
+  eblup.s.FH = all_FH_star$eblup
   g1.s.FH = d * (1 - B.star.FH)
   
   pivot_FH[bb, ] = t((btheta_FH - eblup.s.FH) / sqrt(g1.s.FH))
-  
-  d_pivot_FH = matrix(0, DB, m)
-  d_HM_FH = matrix(0, DB, m)
-  
-  for (dd in 1:DB) {
-    # dv_FH = rt(m, df)*sqrt((df-2)*c(A.star.FH)/df)
-    dv_FH = rnorm(m, 0, sqrt(A.star.FH))
-    dtheta_FH = x%*%beta.s.FH + dv_FH
-    de = rmvnorm(1, sigma = diag(d))
-    dy_FH = dtheta_FH + matrix(de)
-    
-    # Double bootstrap for FH
-    if((F_fh(0, dy_FH, d, x)-(m-p))<0){
-      A.ss.FH = 2/(m-3)#0.01
-      ss_fh = ss_fh +1
-    }
-    else{
-      A.ss.FH = 0
-      diff = 10
-      k = 0
-      while((diff > tol) & (k < maxiter)) {
-        Anew_fh = A.ss.FH + (m - p - F_fh(A.ss.FH, dy_FH, d, x)) / G_fh(A.ss.FH, d, x)
-        Anew_fh = ifelse(Anew_fh < 0, -Anew_fh/10, Anew_fh)
-        diff = abs(Anew_fh - A.ss.FH)
-        A.ss.FH = Anew_fh
-        k = k+1
-      }
-      if((A.ss.FH < 0)|(k==maxiter)) {
-        A.ss.FH = 2/(m-3)#0.01
-        ss_fh = ss_fh +1
-      }
-    }
-    
-    Vi.ss.FH = diag(1/(c(A.ss.FH) + d))
-    beta.ss.FH = solve(t(x) %*% Vi.ss.FH %*% x) %*% t(x) %*% Vi.ss.FH %*% dy_FH
-    B.ss.FH = d / (d + c(A.ss.FH))
-    eblup.ss.FH = (1 - B.ss.FH) * dy_FH + B.ss.FH * (x %*% beta.ss.FH)
-    g1.ss.FH = d * (1 - B.ss.FH)
-    
-    d_pivot_FH[dd, ] = t((dtheta_FH - eblup.ss.FH) / sqrt(g1.ss.FH))
-  }
-  eblup.FH.mat = matrix(rep(pivot_FH[bb, ], rep(DB, m)), DB, m, byrow = F)
-  Z.j.FH[bb, ] = colSums(d_pivot_FH<=eblup.FH.mat)/DB
   
   plot(1,ylim=c(0,1),main=paste(1,"/",bb))
 }
